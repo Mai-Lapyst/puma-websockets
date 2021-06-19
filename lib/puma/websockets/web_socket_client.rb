@@ -1,7 +1,61 @@
-require 'puma/stream_client'
+#require 'puma/stream_client'
 
 module Puma::Websockets
-  class WebSocketClient < Puma::StreamClient
+
+  class StreamClient
+    def initialize(io)
+      @io = io
+      @env = nil
+    end
+
+    attr_reader :env
+
+    def to_io
+      @io
+    end
+
+    def timeout_at
+      Process.clock_gettime(Process::CLOCK_MONOTONIC) + 60
+    end
+
+    def timeout
+      60
+    end
+
+    def io_ok?
+      !@io.closed?
+    end
+
+    def closed?
+      @io.closed?
+    end
+
+    def stream?
+      true
+    end
+
+    def can_close?
+      raise NotImplementedError
+    end
+
+    def on_read_ready
+      raise NotImplementedError
+    end
+
+    def on_broken_pipe
+      raise NotImplementedError
+    end
+
+    def close
+      raise NotImplementedError
+    end
+
+    def churn
+      raise NotImplementedError
+    end
+  end
+
+  class WebSocketClient < StreamClient
     def start(handler, ws, connection)
       @handler = handler
       @ws = ws
@@ -54,6 +108,11 @@ module Puma::Websockets
       end
     end
 
+    def can_close?
+      # we can only close when we have no events left to process
+      @lock.synchronize { @events.none? }
+    end
+
     def on_read_ready
       begin
         data = @io.read_nonblock(1024)
@@ -75,7 +134,7 @@ module Puma::Websockets
       )
     end
 
-    def on_shutdown
+    def close
       @io.close
       @handler.on_close @connection
     end
